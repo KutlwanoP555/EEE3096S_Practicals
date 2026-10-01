@@ -35,7 +35,12 @@ uint8_t eeprom_read_status(void)
      *           more byte to receive the status, deselect, and return it.
      *           Be ready to explain why you have to SEND a byte in order to
      *           RECEIVE one. */
-    return 0u;
+	    uint8_t sr;
+	    eeprom_cs_low();
+	    spi_transfer(EEPROM_CMD_RDSR);
+	    sr = spi_transfer(0x00u);          /* dummy byte to clock out the status */
+	    eeprom_cs_high();
+	    return sr;
 }
 
 void eeprom_write_enable(void)
@@ -44,7 +49,11 @@ void eeprom_write_enable(void)
      *           transaction. Check the datasheet: at what point does the write
      *           enable latch actually get set? That decides whether this could
      *           share a transaction with the write itself. */
-}
+	    eeprom_cs_low();
+	    spi_transfer(EEPROM_CMD_WREN);
+	    eeprom_cs_high();
+	}
+
 
 void eeprom_write_byte(uint16_t address, uint8_t value)
 {
@@ -59,14 +68,33 @@ void eeprom_write_byte(uint16_t address, uint8_t value)
      *           (EEPROM_ADDR_BYTES bytes, most significant byte first) and the
      *           data byte, and deselect. From the datasheet: at what moment
      *           does the EEPROM actually start writing? */
-    (void)value;
+
+
+    eeprom_write_enable();
+    eeprom_cs_low();
+    spi_transfer(EEPROM_CMD_WRITE);// telling stm32 that its writing to eeprom-msbyte
+    spi_transfer((uint8_t)(address >> 8));    /* address high byte */
+    spi_transfer((uint8_t)(address & 0xFF));  /* address low byte */
+    spi_transfer(value);
+    eeprom_cs_high();
+
 
     /* TODO 4.6  Wait for the write to finish by POLLING THE STATUS REGISTER.
      *           Bound the loop with EEPROM_WRITE_TIMEOUT_MS so a missing
      *           device cannot hang the board (count timeouts in
      *           eeprom_timeout_count), and record how long the write took in
      *           eeprom_write_wait_ms - your report needs that figure. */
+
     start = HAL_GetTick();
+
+    while (eeprom_read_status() & EEPROM_SR_RDY)
+    {
+        if ((uint32_t)(HAL_GetTick() - start) >= EEPROM_WRITE_TIMEOUT_MS)
+        {
+            eeprom_timeout_count++;
+            break;
+        }
+    }
 
     eeprom_write_wait_ms = (uint32_t)(HAL_GetTick() - start);
 }
@@ -80,7 +108,18 @@ uint8_t eeprom_read_byte(uint16_t address)
 
     /* TODO 4.7  Select, send the read instruction and the address, clock one
      *           more byte to receive the data, deselect, and return it. */
-    return 0u;
+
+
+    uint8_t val;
+    eeprom_cs_low();
+    spi_transfer(EEPROM_CMD_READ);
+    spi_transfer((uint8_t)(address >> 8));
+    spi_transfer((uint8_t)(address & 0xFF));
+    val = spi_transfer(0x00u);
+    eeprom_cs_high();
+    return val;
+
+
 }
 
 /* ==========================================================================
@@ -93,7 +132,11 @@ void leds_write_byte(uint8_t v)
      *           Do it without disturbing PB10..PB15 on the same port - those
      *           carry the status LEDs, CS and the SPI pins. One register lets
      *           you set some pins and reset others in a single write. */
-    (void)v;
+
+	uint32_t set   = (uint32_t)v & LED_BYTE_MASK;              /* bits to drive HIGH */
+	uint32_t reset = (uint32_t)(~v & LED_BYTE_MASK) << 16;     /* bits to drive LOW */
+	LED_BYTE_GPIO->BSRR = set | reset;
+
 }
 
 /* ==========================================================================
@@ -122,6 +165,17 @@ void eeprom_write_verify_path(void)
      *             - compare with what you wrote  -> eeprom_verify_ok
      *             - show the byte read on the LEDs
      *             - optional: status_leds_show(STATUS_PASS or STATUS_FAIL) */
+
+
+	    eeprom_status_before = eeprom_read_status();
+	    eeprom_write_byte(eeprom_test_addr, eeprom_test_byte);
+	    eeprom_status_after  = eeprom_read_status();
+	    eeprom_read_value    = eeprom_read_byte(eeprom_test_addr);
+	    eeprom_verify_ok     = (eeprom_read_value == eeprom_test_byte) ? 1u : 0u;
+	    leds_write_byte(eeprom_read_value);
+	    status_leds_show(eeprom_verify_ok ? STATUS_PASS : STATUS_FAIL);
+
+
 }
 
 /* ==========================================================================

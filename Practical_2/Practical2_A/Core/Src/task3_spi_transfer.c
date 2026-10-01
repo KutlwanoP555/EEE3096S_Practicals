@@ -23,7 +23,8 @@ void eeprom_cs_high(void)
      *           last bits have left the shift register. RM0091 lists the
      *           status flags to wait for (see its procedure for disabling the
      *           SPI). Raising CS early cuts the end off a command. */
-}
+	while (EE_SPI->SR & (1UL << 7)) { }   /* wait while BSY=1: peripheral still shifting */
+	    EE_SPI_GPIO->BSRR = EE_CS_MASK;       /* now safe to deselect */}
 
 /* ==========================================================================
  * TASK 3
@@ -32,6 +33,7 @@ void eeprom_cs_high(void)
 uint8_t spi_transfer(uint8_t tx)
 {
     /* TODO 3.4  Wait until the transmit buffer has room (SPI_SR). */
+	while (!(EE_SPI->SR & (1UL << 1))) { }
 
     /* TODO 3.5  Write tx to the data register.
      *           HINT: SPI_DR is declared 16 bits wide in the CMSIS header,
@@ -39,12 +41,15 @@ uint8_t spi_transfer(uint8_t tx)
      *           clock pulses per call on your scope: 16 instead of 8 means
      *           this is the problem. */
 
+    *(volatile uint8_t *)&EE_SPI->DR = tx;
+
+
     /* TODO 3.6  Wait for the received byte (SPI_SR), then read it from the
      *           data register and return it. Read it every time, even when
      *           you do not need the value. */
-
-    (void)tx;
-    return 0u;
+    while (!(EE_SPI->SR & (1UL << 0))) { }      /* wait for RXNE (bit 0) */
+    	uint8_t rx = *(volatile uint8_t *)&EE_SPI->DR;   /* 8-bit read of DR */
+    	return rx;
 }
 
 /* ==========================================================================
