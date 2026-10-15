@@ -16,6 +16,7 @@ bool voltage_mirror_init(void)
      * Set ADC1->CFGR1, ADC1->CHSELR, ADC1->SMPR, DAC->DHR12R1 and DAC->CR.
      * Finish by returning board_adc_enable(). Remove the false return below.
      */
+    ADC1->CFGR1 = 0; /* Reset configuration register */
     return false; /* The uncompleted starter intentionally does not acquire. */
 }
 
